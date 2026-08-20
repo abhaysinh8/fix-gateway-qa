@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fix-gateway-qa"
+version = "0.1.0"
+description = "FIX 4.4 order-gateway conformance and QA portfolio project"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0,<10",
+    "hypothesis>=6.100,<7",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["fixgateway*"]
+
