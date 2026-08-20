@@ -36,6 +36,50 @@ class MessageLogEntry:
     message: FixMessage | None
 
 
+@dataclass(frozen=True)
+class AuditLogEntry:
+    """Normalized, queryable view of one exchange wire-log entry."""
+
+    timestamp: datetime
+    direction: str
+    delivery_status: str
+    msg_type: str | None
+    order_id: str | None
+    cl_ord_id: str | None
+    orig_cl_ord_id: str | None
+    exchange_order_id: str | None
+    ord_status: str | None
+    exec_type: str | None
+    cum_qty: str | None
+    leaves_qty: str | None
+    fields: dict[int, str]
+    raw: bytes
+
+
+def _audit_entry(entry: MessageLogEntry) -> AuditLogEntry:
+    fields = entry.message.fields if entry.message is not None else {}
+    msg_type = fields.get(Tag.MSG_TYPE)
+    cl_ord_id = fields.get(Tag.CL_ORD_ID)
+    orig_cl_ord_id = fields.get(Tag.ORIG_CL_ORD_ID)
+    order_id = orig_cl_ord_id if orig_cl_ord_id else cl_ord_id
+    return AuditLogEntry(
+        timestamp=entry.timestamp,
+        direction="inbound" if entry.direction == "RECEIVED" else "outbound",
+        delivery_status=entry.direction.lower(),
+        msg_type=msg_type,
+        order_id=order_id,
+        cl_ord_id=cl_ord_id,
+        orig_cl_ord_id=orig_cl_ord_id,
+        exchange_order_id=fields.get(Tag.ORDER_ID),
+        ord_status=fields.get(Tag.ORD_STATUS),
+        exec_type=fields.get(Tag.EXEC_TYPE),
+        cum_qty=fields.get(Tag.CUM_QTY),
+        leaves_qty=fields.get(Tag.LEAVES_QTY),
+        fields=fields,
+        raw=entry.raw,
+    )
+
+
 def _fix_timestamp() -> str:
     return datetime.now(UTC).strftime("%Y%m%d-%H:%M:%S.%f")[:-3]
 
@@ -101,6 +145,14 @@ class MockExchange:
     @property
     def is_running(self) -> bool:
         return self._accept_thread is not None and self._accept_thread.is_alive()
+
+    @property
+    def audit_log(self) -> list[AuditLogEntry]:
+        """Return a snapshot suitable for independent audit reconstruction."""
+
+        with self._lock:
+            entries = list(self.message_log)
+        return [_audit_entry(entry) for entry in entries]
 
     def start(self) -> "MockExchange":
         if self.is_running:
@@ -377,6 +429,7 @@ class MockExchange:
                     sequence,
                     OrderEvent.CANCEL_CONFIRMED,
                     cl_ord_id=message[Tag.CL_ORD_ID],
+                    orig_cl_ord_id=original_cl_ord_id,
                 )
         except (InvalidTransitionError, OrderNotFoundError) as exc:
             try:
@@ -417,6 +470,7 @@ class MockExchange:
         event: OrderEvent,
         *,
         cl_ord_id: str | None = None,
+        orig_cl_ord_id: str | None = None,
     ) -> FixMessage:
         exec_type, status = {
             OrderEvent.ACK: ("0", OrdStatus.NEW.value),
@@ -438,6 +492,8 @@ class MockExchange:
             151: str(order.leaves_quantity),
             6: str(average_price),
         }
+        if orig_cl_ord_id is not None:
+            fields[Tag.ORIG_CL_ORD_ID] = orig_cl_ord_id
         return FixMessage(fields)
 
     def _rejected_execution_report(

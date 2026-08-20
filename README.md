@@ -14,6 +14,16 @@ regression baseline. A deliberately simplified rule-based detector produces stru
 real surveillance or compliance system. Jinja2 combines the suite summary, latency
 percentiles, and heuristic matches into a self-contained HTML report.
 
+The numerical regression layer contrasts exact Decimal-based tick rounding, notional,
+weighted-average fill price, PnL, and currency calculations with deliberately naive
+float implementations. Hypothesis fuzzing protects against fixed-point drift across
+small ticks, large prices, and large order quantities.
+
+The audit layer exposes a normalized inbound/outbound message trail, checks timestamp
+and lifecycle completeness, reconstructs order histories without live process state,
+and cross-checks those histories against the formal state machine. It is a simplified
+educational analog of regulatory completeness controls, not a compliance system.
+
 Run the complete demonstration:
 
 ```bash
@@ -52,6 +62,9 @@ order lifecycle model without relying on a third-party FIX engine.
 - p50/p99/p99.9/max latency reporting with a persisted regression baseline
 - Structured, rule-based spoofing-like and layering-like test heuristics
 - Self-contained Jinja2 HTML report generation and a one-command end-to-end demo
+- Decimal-based price, notional, weighted-average, PnL, and currency arithmetic
+- Property-based precision and rounding regression coverage with naive float contrasts
+- Audit-log completeness, ordering, lifecycle reconstruction, and state cross-checks
 - Unit coverage for valid, malformed, and corrupted wire messages
 
 ## Run the tests
@@ -81,5 +94,6 @@ and its pattern labels are not compliance determinations.
 
 ## Status
 
-All six planned phases are implemented. The project can be extended with higher-volume
-load generation, session recovery, sequence-gap handling, and deeper fault injection.
+Phases 1–8 are implemented. Phase 9 can build on this foundation; the project can also
+be extended with higher-volume load generation, session recovery, sequence-gap
+handling, and deeper fault injection.
