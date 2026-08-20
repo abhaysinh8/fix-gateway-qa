@@ -13,6 +13,11 @@ from typing import Any
 from fixgateway.fix.constants import MsgType, OrdType, Side, Tag
 from fixgateway.fix.framing import FixStreamReader
 from fixgateway.fix.message import FixMessage, decode
+from fixgateway.exchange.state_machine import (
+    InvalidTransitionError,
+    OrderEvent,
+    OrderStateMachine,
+)
 
 
 def _fix_timestamp() -> str:
@@ -32,8 +37,23 @@ class ConcurrentOrderResult:
     latency_ms: float
 
 
+@dataclass(frozen=True)
+class DuplicateExecutionReport:
+    exec_id: str
+    cl_ord_id: str
+    exec_type: str | None
+
+
 class FixRequestTimeoutError(TimeoutError):
     """Raised when a FIX request does not receive a response before its deadline."""
+
+
+class FixRetriesExhaustedError(FixRequestTimeoutError):
+    """Raised after a request times out on its initial send and every retry."""
+
+    def __init__(self, message: str, attempts: int) -> None:
+        super().__init__(message)
+        self.attempts = attempts
 
 
 class FixClient:
@@ -47,16 +67,28 @@ class FixClient:
         sender_comp_id: str = "TEST_CLIENT",
         target_comp_id: str = "MOCK_EXCHANGE",
         timeout: float = 5.0,
+        max_retries: int = 0,
     ) -> None:
+        if timeout <= 0:
+            raise ValueError("timeout must be greater than zero")
+        if max_retries < 0:
+            raise ValueError("max_retries must be non-negative")
         self.host = host
         self.port = port
         self.sender_comp_id = sender_comp_id
         self.target_comp_id = target_comp_id
         self.timeout = timeout
+        self.max_retries = max_retries
         self.latency_samples: list[LatencySample] = []
+        self.detected_duplicates: list[DuplicateExecutionReport] = []
+        self.processing_errors: list[str] = []
+        self.retry_attempts: dict[str, int] = {}
         self._socket: socket.socket | None = None
         self._reader = FixStreamReader()
         self._sequence = itertools.count(1)
+        self._processed_exec_ids: set[str] = set()
+        self._order_states: dict[str, OrderStateMachine] = {}
+        self._pending_messages: list[FixMessage] = []
 
     @property
     def is_connected(self) -> bool:
@@ -67,6 +99,12 @@ class FixClient:
         if not self.latency_samples:
             return None
         return self.latency_samples[-1].latency_ms
+
+    @property
+    def order_states(self) -> dict[str, OrderStateMachine]:
+        """Return the client's per-order lifecycle trackers."""
+
+        return dict(self._order_states)
 
     def connect(self) -> FixMessage:
         if self._socket is not None:
@@ -93,6 +131,7 @@ class FixClient:
                 pass
             connection.close()
         self._reader = FixStreamReader()
+        self._pending_messages.clear()
 
     def __enter__(self) -> "FixClient":
         self.connect()
@@ -102,14 +141,63 @@ class FixClient:
         self.close()
 
     def receive_message(self) -> FixMessage:
+        if self._pending_messages:
+            return self._pending_messages.pop(0)
+        return self._receive_unique_message()
+
+    def _receive_unique_message(self) -> FixMessage:
         if self._socket is None:
             raise RuntimeError("FIX client is not connected")
+        while True:
+            try:
+                message = decode(self._reader.receive(self._socket))
+            except TimeoutError as exc:
+                raise FixRequestTimeoutError(
+                    f"Timed out after {self.timeout:.3f}s waiting for a FIX response"
+                ) from exc
+            if self._process_execution_report(message):
+                continue
+            return message
+
+    def _process_execution_report(self, message: FixMessage) -> bool:
+        """Apply one unique ExecutionReport; return True when it was a duplicate."""
+
+        if message.get(Tag.MSG_TYPE) != MsgType.EXECUTION_REPORT.value:
+            return False
+        exec_id = message.get(Tag.EXEC_ID)
+        cl_ord_id = message.get(Tag.CL_ORD_ID, "UNKNOWN")
+        if exec_id is not None and exec_id in self._processed_exec_ids:
+            self.detected_duplicates.append(
+                DuplicateExecutionReport(
+                    exec_id=exec_id,
+                    cl_ord_id=cl_ord_id,
+                    exec_type=message.get(Tag.EXEC_TYPE),
+                )
+            )
+            return True
+        if exec_id is not None:
+            self._processed_exec_ids.add(exec_id)
+
+        order_id = message.get(Tag.ORIG_CL_ORD_ID) or cl_ord_id
+        event = {
+            "0": OrderEvent.ACK,
+            "1": OrderEvent.PARTIAL_FILL,
+            "2": OrderEvent.FULL_FILL,
+            "4": OrderEvent.CANCEL_CONFIRMED,
+            "8": OrderEvent.REJECT,
+        }.get(message.get(Tag.EXEC_TYPE))
+        if event is None:
+            return False
+        machine = self._order_states.setdefault(order_id, OrderStateMachine())
         try:
-            return decode(self._reader.receive(self._socket))
-        except TimeoutError as exc:
-            raise FixRequestTimeoutError(
-                f"Timed out after {self.timeout:.3f}s waiting for a FIX response"
-            ) from exc
+            if event is OrderEvent.CANCEL_CONFIRMED:
+                machine.apply(OrderEvent.CANCEL_REQUEST)
+            machine.apply(event)
+        except InvalidTransitionError as exc:
+            self.processing_errors.append(
+                f"ExecutionReport {exec_id or '<no ExecID>'} for {order_id}: {exc}"
+            )
+        return False
 
     def send_new_order(
         self,
@@ -120,6 +208,51 @@ class FixClient:
         price: int | float | str | None = None,
         *,
         time_in_force: str = "0",
+    ) -> FixMessage:
+        message = self._new_order_message(
+            cl_ord_id,
+            symbol,
+            side,
+            quantity,
+            price,
+            time_in_force=time_in_force,
+        )
+        return self.send_message(message, cl_ord_id=cl_ord_id)
+
+    def send_new_order_nowait(
+        self,
+        cl_ord_id: str,
+        symbol: str,
+        side: Side | str,
+        quantity: int | float | str,
+        price: int | float | str | None = None,
+        *,
+        time_in_force: str = "0",
+    ) -> FixMessage:
+        """Submit an order without waiting, enabling controlled pipelined tests."""
+
+        if self._socket is None:
+            raise RuntimeError("FIX client is not connected")
+        message = self._new_order_message(
+            cl_ord_id,
+            symbol,
+            side,
+            quantity,
+            price,
+            time_in_force=time_in_force,
+        )
+        self._socket.sendall(message.encode())
+        return message
+
+    def _new_order_message(
+        self,
+        cl_ord_id: str,
+        symbol: str,
+        side: Side | str,
+        quantity: int | float | str,
+        price: int | float | str | None,
+        *,
+        time_in_force: str,
     ) -> FixMessage:
         normalized_side = side.value if isinstance(side, Side) else str(side)
         ord_type = OrdType.MARKET.value if price is None else OrdType.LIMIT.value
@@ -133,7 +266,7 @@ class FixClient:
         }
         if price is not None:
             fields[44] = str(price)
-        return self.send_message(FixMessage(fields), cl_ord_id=cl_ord_id)
+        return FixMessage(fields)
 
     def send_cancel(
         self,
@@ -164,27 +297,55 @@ class FixClient:
         *,
         request_type: str = "UNKNOWN",
         cl_ord_id: str = "UNKNOWN",
+        max_retries: int | None = None,
     ) -> FixMessage:
         if self._socket is None:
             raise RuntimeError("FIX client is not connected")
-        started_ns = time.perf_counter_ns()
-        self._socket.sendall(raw)
-        try:
-            response = self.receive_message()
-        except FixRequestTimeoutError as exc:
-            raise FixRequestTimeoutError(
-                f"Timed out after {self.timeout:.3f}s waiting for response to "
-                f"MsgType {request_type} (ClOrdID {cl_ord_id})"
-            ) from exc
-        finished_ns = time.perf_counter_ns()
-        self.latency_samples.append(
-            LatencySample(
-                request_type=request_type,
-                cl_ord_id=cl_ord_id,
-                latency_ms=(finished_ns - started_ns) / 1_000_000,
+        retry_limit = self.max_retries if max_retries is None else max_retries
+        if retry_limit < 0:
+            raise ValueError("max_retries must be non-negative")
+
+        for attempt in range(retry_limit + 1):
+            started_ns = time.perf_counter_ns()
+            self._socket.sendall(raw)
+            try:
+                response = self._receive_matching(cl_ord_id)
+            except FixRequestTimeoutError as exc:
+                self.retry_attempts[cl_ord_id] = attempt
+                if attempt < retry_limit:
+                    continue
+                attempts = attempt + 1
+                raise FixRetriesExhaustedError(
+                    f"Timed out after {attempts} attempt(s), {self.timeout:.3f}s each, "
+                    f"waiting for response to MsgType {request_type} "
+                    f"(ClOrdID {cl_ord_id}); retries exhausted",
+                    attempts,
+                ) from exc
+            finished_ns = time.perf_counter_ns()
+            self.retry_attempts[cl_ord_id] = attempt
+            self.latency_samples.append(
+                LatencySample(
+                    request_type=request_type,
+                    cl_ord_id=cl_ord_id,
+                    latency_ms=(finished_ns - started_ns) / 1_000_000,
+                )
             )
-        )
-        return response
+            return response
+        raise AssertionError("retry loop terminated unexpectedly")
+
+    def _receive_matching(self, cl_ord_id: str) -> FixMessage:
+        for index, message in enumerate(self._pending_messages):
+            if message.get(Tag.CL_ORD_ID) == cl_ord_id:
+                return self._pending_messages.pop(index)
+        while True:
+            message = self._receive_unique_message()
+            if (
+                cl_ord_id == "UNKNOWN"
+                or message.get(Tag.CL_ORD_ID) == cl_ord_id
+                or message.get(Tag.MSG_TYPE) == "3"
+            ):
+                return message
+            self._pending_messages.append(message)
 
     async def send_orders_concurrently(
         self,
@@ -207,6 +368,7 @@ class FixClient:
                         sender_comp_id=f"{self.sender_comp_id}_{index}",
                         target_comp_id=self.target_comp_id,
                         timeout=self.timeout,
+                        max_retries=self.max_retries,
                     ) as worker:
                         message = worker.send_new_order(**order)
                         assert worker.last_latency_ms is not None

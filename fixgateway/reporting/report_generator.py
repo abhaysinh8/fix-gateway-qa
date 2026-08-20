@@ -100,15 +100,77 @@ def _latency_rows(latency: Mapping[str, Any]) -> list[dict[str, float | str]]:
     ]
 
 
+def _optional_mapping(data: Mapping[str, Any], key: str) -> dict[str, Any]:
+    value = data.get(key, {})
+    return _mapping(value, f"results['{key}']") if value else {}
+
+
+def _display_status(passed: Any, *, empty: str = "NOT RUN") -> str:
+    if passed is None:
+        return empty
+    return "PASS" if bool(passed) else "FAIL"
+
+
+def _subsystem_rows(data: Mapping[str, Any]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for item in data.get("subsystems", []):
+        subsystem = _mapping(item, "subsystem")
+        passed = subsystem.get("passed")
+        rows.append(
+            {
+                "name": str(subsystem.get("name", "Unnamed subsystem")),
+                "status": _display_status(passed),
+                "status_class": "pass" if passed else "fail",
+                "details": str(subsystem.get("details", "")),
+            }
+        )
+    return rows
+
+
+def _precision_rows(precision: Mapping[str, Any]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for item in precision.get("highlights", []):
+        highlight = _mapping(item, "precision highlight")
+        rows.append(
+            {
+                "operation": str(highlight.get("operation", "")),
+                "decimal_result": str(highlight.get("decimal_result", "")),
+                "naive_result": str(highlight.get("naive_result", "")),
+                "observation": str(highlight.get("observation", "")),
+            }
+        )
+    return rows
+
+
+def _soak_rows(soak: Mapping[str, Any]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for item in soak.get("samples", []):
+        sample = _mapping(item, "soak sample")
+        rows.append(
+            {
+                "elapsed": f"{float(sample.get('elapsed_seconds', 0)):.1f}",
+                "memory": f"{float(sample.get('memory_mb', 0)):.2f}",
+                "connections": str(sample.get("open_connections", 0)),
+                "requests": str(
+                    sample.get("requests_completed", sample.get("request_count", 0))
+                ),
+                "p50": f"{float(sample.get('p50_ms', 0)):.3f}",
+                "p99": f"{float(sample.get('p99_ms', 0)):.3f}",
+            }
+        )
+    return rows
+
+
 def generate_report(
     results: Mapping[str, Any] | Any,
     output_path: str | Path = "reports/report.html",
 ) -> Path:
     """Render structured test, latency, and surveillance results as HTML.
 
-    Accepted keys are ``tests`` (``total``, ``passed``, ``failed``), ``latency``,
-    ``surveillance_flags``, and optional ``timestamp``. For convenience, test counts
-    may instead be provided as top-level ``total_tests``, ``passed``, and ``failed``.
+    Accepted keys include ``tests``, ``latency``, ``latency_baseline``, ``precision``,
+    ``audit``, ``market_data``, ``chaos``, ``soak``, ``surveillance_flags``, and
+    optional ``subsystems``/``timestamp``. For convenience, test counts may instead be
+    provided as top-level ``total_tests``, ``passed``, and ``failed``.
     """
 
     data = _mapping(results, "results")
@@ -129,6 +191,13 @@ def generate_report(
     if isinstance(timestamp, datetime):
         timestamp = timestamp.isoformat()
 
+    baseline = _optional_mapping(data, "latency_baseline")
+    precision = _optional_mapping(data, "precision")
+    audit = _optional_mapping(data, "audit")
+    market_data = _optional_mapping(data, "market_data")
+    chaos = _optional_mapping(data, "chaos")
+    soak = _optional_mapping(data, "soak")
+
     context = {
         "generated_at": str(timestamp),
         "total": total,
@@ -139,6 +208,30 @@ def generate_report(
         "status": "PASS" if failed == 0 else "FAIL",
         "latency_rows": _latency_rows(latency),
         "sample_count": int(latency.get("sample_count", 0)),
+        "baseline": baseline,
+        "baseline_status": _display_status(
+            baseline.get("passed") if baseline else None
+        ),
+        "precision": precision,
+        "precision_status": _display_status(
+            precision.get("passed") if precision else None
+        ),
+        "precision_rows": _precision_rows(precision),
+        "audit": audit,
+        "audit_status": _display_status(audit.get("is_complete") if audit else None),
+        "audit_issues": [str(issue) for issue in audit.get("issues", [])],
+        "market_data": market_data,
+        "market_status": _display_status(
+            market_data.get("passed") if market_data else None
+        ),
+        "market_gaps": [str(gap) for gap in market_data.get("gap_ranges", [])],
+        "chaos": chaos,
+        "chaos_status": _display_status(chaos.get("passed") if chaos else None),
+        "chaos_details": [str(detail) for detail in chaos.get("details", [])],
+        "soak": soak,
+        "soak_status": _display_status(soak.get("passed") if soak else None),
+        "soak_rows": _soak_rows(soak),
+        "subsystem_rows": _subsystem_rows(data),
         "surveillance_rows": _surveillance_rows(
             data.get("surveillance_flags", data.get("surveillance", []))
         ),

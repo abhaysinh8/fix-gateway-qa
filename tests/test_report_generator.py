@@ -62,3 +62,66 @@ def test_generate_report_supports_empty_surveillance_results(tmp_path: Path) -> 
     assert "No heuristic pattern matches were raised" in html
     assert "status-pass" in html
 
+
+def test_generate_report_renders_unified_subsystem_evidence(tmp_path: Path) -> None:
+    destination = generate_report(
+        {
+            "tests": {"total": 70, "passed": 70, "failed": 0},
+            "subsystems": [
+                {"name": "Market data", "passed": True, "details": "Gap detected"}
+            ],
+            "latency_baseline": {
+                "passed": True,
+                "action": "compared",
+                "baseline_p99_ms": 5.0,
+                "allowed_p99_ms": 6.0,
+            },
+            "precision": {
+                "passed": True,
+                "summary": "Exact Decimal arithmetic",
+                "highlights": [
+                    {
+                        "operation": "0.1 × 3",
+                        "decimal_result": "0.3",
+                        "naive_result": "0.30000000000000004",
+                        "observation": "float drift",
+                    }
+                ],
+            },
+            "audit": {"is_complete": True, "entry_count": 12, "issues": []},
+            "market_data": {
+                "passed": True,
+                "ordered_status": "PASS",
+                "gap_detected": True,
+                "request_resync": True,
+            },
+            "chaos": {"passed": True, "duplicates_detected": 4},
+            "soak": {
+                "passed": True,
+                "total_requests": 20,
+                "samples": [
+                    {
+                        "elapsed_seconds": 1,
+                        "memory_mb": 50,
+                        "open_connections": 1,
+                        "requests_completed": 20,
+                        "p50_ms": 1.2,
+                        "p99_ms": 2.3,
+                    }
+                ],
+            },
+        },
+        tmp_path / "unified.html",
+    )
+
+    html = destination.read_text(encoding="utf-8")
+    for heading in (
+        "Numerical precision and rounding",
+        "Audit trail completeness",
+        "Market data conformance and gap recovery",
+        "Chaos, retries, and idempotency",
+        "Short soak-test time series",
+    ):
+        assert heading in html
+    assert "0.30000000000000004" in html
+    assert "Gap detected" in html

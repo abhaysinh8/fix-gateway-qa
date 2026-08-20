@@ -40,6 +40,68 @@ _NUMERIC_FIELDS = {
 }
 
 
+def validate_wire_integrity(raw: bytes | str) -> ValidationResult:
+    """Validate FIX BodyLength and CheckSum without assuming unique body tags.
+
+    This is shared by message profiles such as market data that legitimately use
+    repeating groups and therefore cannot be parsed into Phase 1's simple tag dict.
+    """
+
+    errors: list[str] = []
+    try:
+        data = raw if isinstance(raw, bytes) else raw.encode("ascii")
+    except (AttributeError, UnicodeEncodeError) as exc:
+        raise TypeError("raw must be an ASCII bytes or str FIX message") from exc
+    if not data.endswith(b"\x01"):
+        return ValidationResult(False, ["Truncated FIX message: expected trailing SOH"])
+
+    chunks = data[:-1].split(b"\x01")
+    if len(chunks) < 3 or not chunks[0].startswith(b"8="):
+        errors.append("Malformed FIX message: tag 8 must be first")
+    if len(chunks) < 2 or not chunks[1].startswith(b"9="):
+        errors.append("Malformed FIX message: tag 9 must be second")
+        declared_body_length = None
+    else:
+        declared_body_length = chunks[1][2:].decode("ascii", errors="replace")
+    if not chunks or not chunks[-1].startswith(b"10="):
+        errors.append("Malformed FIX message: tag 10 must be final")
+        checksum_value = None
+    else:
+        checksum_value = chunks[-1][3:].decode("ascii", errors="replace")
+
+    try:
+        expected_body_length = calculate_body_length(data)
+    except FixMessageError as exc:
+        errors.append(str(exc))
+    else:
+        if declared_body_length is not None:
+            try:
+                declared = int(declared_body_length)
+            except ValueError:
+                errors.append(
+                    f"BodyLength (9) must be an integer; got {declared_body_length!r}"
+                )
+            else:
+                if declared != expected_body_length:
+                    errors.append(
+                        f"BodyLength mismatch: declared {declared}, "
+                        f"calculated {expected_body_length}"
+                    )
+
+    expected_checksum = calculate_checksum(data)
+    if checksum_value is not None:
+        if len(checksum_value) != 3 or not checksum_value.isdigit():
+            errors.append(
+                f"CheckSum (10) must be exactly three digits; got {checksum_value!r}"
+            )
+        elif int(checksum_value) != expected_checksum:
+            errors.append(
+                f"CheckSum mismatch: declared {checksum_value}, "
+                f"calculated {expected_checksum:03d}"
+            )
+    return ValidationResult(not errors, errors)
+
+
 def _decimal_value(fields: dict[int, str], tag: Tag, name: str, errors: list[str]) -> Decimal | None:
     if tag not in fields:
         return None
@@ -155,4 +217,3 @@ def validate(message: FixMessage) -> ValidationResult:
             )
 
     return ValidationResult(is_valid=not errors, errors=errors)
-

@@ -50,10 +50,20 @@ class AuditLogEntry:
     exchange_order_id: str | None
     ord_status: str | None
     exec_type: str | None
+    exec_id: str | None
     cum_qty: str | None
     leaves_qty: str | None
     fields: dict[int, str]
     raw: bytes
+
+
+@dataclass(frozen=True)
+class _PendingDelivery:
+    connection: socket.socket
+    peer: tuple[str, int]
+    raw: bytes
+    message: FixMessage
+    duplicate: bool
 
 
 def _audit_entry(entry: MessageLogEntry) -> AuditLogEntry:
@@ -73,6 +83,7 @@ def _audit_entry(entry: MessageLogEntry) -> AuditLogEntry:
         exchange_order_id=fields.get(Tag.ORDER_ID),
         ord_status=fields.get(Tag.ORD_STATUS),
         exec_type=fields.get(Tag.EXEC_TYPE),
+        exec_id=fields.get(Tag.EXEC_ID),
         cum_qty=fields.get(Tag.CUM_QTY),
         leaves_qty=fields.get(Tag.LEAVES_QTY),
         fields=fields,
@@ -99,6 +110,9 @@ class MockExchange:
         chaos_rate: float = 0.10,
         chaos_drop_probability: float = 0.50,
         chaos_extra_delay_ms: tuple[float, float] = (200.0, 1_000.0),
+        chaos_duplicate_rate: float = 0.05,
+        chaos_reorder_rate: float = 0.05,
+        chaos_reorder_hold_ms: float = 25.0,
         random_seed: int | None = None,
     ) -> None:
         low_delay, high_delay = processing_delay_ms
@@ -115,6 +129,12 @@ class MockExchange:
             raise ValueError("chaos_rate must be between zero and one")
         if not 0 <= chaos_drop_probability <= 1:
             raise ValueError("chaos_drop_probability must be between zero and one")
+        if not 0 <= chaos_duplicate_rate <= 1:
+            raise ValueError("chaos_duplicate_rate must be between zero and one")
+        if not 0 <= chaos_reorder_rate <= 1:
+            raise ValueError("chaos_reorder_rate must be between zero and one")
+        if chaos_reorder_hold_ms < 0:
+            raise ValueError("chaos_reorder_hold_ms must be non-negative")
         chaos_low, chaos_high = chaos_extra_delay_ms
         if chaos_low < 0 or chaos_high < chaos_low:
             raise ValueError(
@@ -130,6 +150,9 @@ class MockExchange:
         self.chaos_rate = chaos_rate
         self.chaos_drop_probability = chaos_drop_probability
         self.chaos_extra_delay_ms = (float(chaos_low), float(chaos_high))
+        self.chaos_duplicate_rate = chaos_duplicate_rate
+        self.chaos_reorder_rate = chaos_reorder_rate
+        self.chaos_reorder_hold_ms = float(chaos_reorder_hold_ms)
         self.order_book = OrderBook()
         self.message_log: list[MessageLogEntry] = []
 
@@ -139,12 +162,24 @@ class MockExchange:
         self._connections: set[socket.socket] = set()
         self._stop_event = threading.Event()
         self._lock = threading.RLock()
+        self._delivery_lock = threading.RLock()
+        self._socket_send_lock = threading.Lock()
         self._order_ids = itertools.count(1)
         self._random = random.Random(random_seed)
+        self._pending_delivery: _PendingDelivery | None = None
+        self._pending_timer: threading.Timer | None = None
+        self._order_responses: dict[str, list[FixMessage]] = {}
 
     @property
     def is_running(self) -> bool:
         return self._accept_thread is not None and self._accept_thread.is_alive()
+
+    @property
+    def active_connection_count(self) -> int:
+        """Return the current number of accepted, not-yet-closed TCP sessions."""
+
+        with self._lock:
+            return len(self._connections)
 
     @property
     def audit_log(self) -> list[AuditLogEntry]:
@@ -176,6 +211,7 @@ class MockExchange:
 
     def stop(self) -> None:
         self._stop_event.set()
+        self._flush_pending_delivery()
         listener, self._listener = self._listener, None
         if listener is not None:
             listener.close()
@@ -304,6 +340,7 @@ class MockExchange:
         message: FixMessage,
     ) -> None:
         raw = message.encode()
+        decoded_message = decode(raw)
         is_execution_report = message.get(Tag.MSG_TYPE) == MsgType.EXECUTION_REPORT.value
         apply_chaos = (
             self.chaos_mode
@@ -315,14 +352,93 @@ class MockExchange:
         if delay:
             time.sleep(delay)
         if apply_chaos and self._random.random() < self.chaos_drop_probability:
-            self._record("DROPPED", peer, raw, decode(raw))
+            self._record("DROPPED", peer, raw, decoded_message)
             return
         if apply_chaos:
             extra_delay = self._random.uniform(*self.chaos_extra_delay_ms) / 1_000
             if extra_delay:
                 time.sleep(extra_delay)
-        connection.sendall(raw)
-        self._record("SENT", peer, raw, decode(raw))
+        duplicate = (
+            self.chaos_mode
+            and is_execution_report
+            and self.chaos_duplicate_rate > 0
+            and self._random.random() < self.chaos_duplicate_rate
+        )
+        delivery = _PendingDelivery(
+            connection, peer, raw, decoded_message, duplicate
+        )
+        if self.chaos_mode and is_execution_report:
+            self._deliver_with_optional_reordering(delivery)
+        else:
+            self._deliver(delivery)
+
+    def _deliver_with_optional_reordering(self, delivery: _PendingDelivery) -> None:
+        deliveries: list[_PendingDelivery] = []
+        with self._delivery_lock:
+            pending = self._pending_delivery
+            if pending is not None:
+                pending_order = pending.message.get(Tag.ORIG_CL_ORD_ID) or pending.message.get(
+                    Tag.CL_ORD_ID
+                )
+                current_order = delivery.message.get(
+                    Tag.ORIG_CL_ORD_ID
+                ) or delivery.message.get(Tag.CL_ORD_ID)
+                self._clear_pending_locked()
+                if pending_order != current_order:
+                    deliveries.extend([delivery, pending])
+                else:
+                    deliveries.extend([pending, delivery])
+            elif (
+                self.chaos_reorder_rate > 0
+                and self._random.random() < self.chaos_reorder_rate
+            ):
+                self._pending_delivery = delivery
+                timer = threading.Timer(
+                    self.chaos_reorder_hold_ms / 1_000,
+                    self._flush_pending_delivery,
+                )
+                timer.daemon = True
+                self._pending_timer = timer
+                timer.start()
+                return
+            else:
+                deliveries.append(delivery)
+
+        for ready in deliveries:
+            self._deliver(ready)
+
+    def _clear_pending_locked(self) -> None:
+        timer, self._pending_timer = self._pending_timer, None
+        self._pending_delivery = None
+        if timer is not None and timer is not threading.current_thread():
+            timer.cancel()
+
+    def _flush_pending_delivery(self) -> None:
+        with self._delivery_lock:
+            pending = self._pending_delivery
+            self._clear_pending_locked()
+        if pending is not None:
+            self._deliver(pending)
+
+    def _deliver(self, delivery: _PendingDelivery) -> None:
+        try:
+            with self._socket_send_lock:
+                delivery.connection.sendall(delivery.raw)
+                self._record(
+                    "SENT", delivery.peer, delivery.raw, delivery.message
+                )
+                if delivery.duplicate:
+                    delivery.connection.sendall(delivery.raw)
+                    self._record(
+                        "DUPLICATE_SENT",
+                        delivery.peer,
+                        delivery.raw,
+                        delivery.message,
+                    )
+        except OSError:
+            self._record(
+                "DELIVERY_FAILED", delivery.peer, delivery.raw, delivery.message
+            )
 
     def _record(
         self,
@@ -369,6 +485,13 @@ class MockExchange:
             return
 
         cl_ord_id = message[Tag.CL_ORD_ID]
+        with self._lock:
+            cached_responses = self._order_responses.get(cl_ord_id)
+        if cached_responses is not None:
+            for cached_response in cached_responses:
+                self._send(connection, peer, cached_response)
+            return
+
         try:
             with self._lock:
                 order = self.order_book.accept_order(
@@ -380,6 +503,18 @@ class MockExchange:
                 )
                 exchange_order_id = f"MOCK-{next(self._order_ids)}"
                 setattr(order, "exchange_order_id", exchange_order_id)
+                responses = [
+                    self._execution_report(
+                        order, target, sequence, OrderEvent.ACK
+                    )
+                ]
+                for fill_quantity in self._fill_quantities(order):
+                    self.order_book.fill_order(order.order_id, fill_quantity)
+                    event = order.state_machine.history[-1].event
+                    responses.append(
+                        self._execution_report(order, target, sequence, event)
+                    )
+                self._order_responses[cl_ord_id] = responses
         except ValueError as exc:
             self._send(
                 connection,
@@ -388,17 +523,8 @@ class MockExchange:
             )
             return
 
-        self._send(
-            connection,
-            peer,
-            self._execution_report(order, target, sequence, OrderEvent.ACK),
-        )
-        for fill_quantity in self._fill_quantities(order):
-            with self._lock:
-                self.order_book.fill_order(order.order_id, fill_quantity)
-                event = order.state_machine.history[-1].event
-                report = self._execution_report(order, target, sequence, event)
-            self._send(connection, peer, report)
+        for response in responses:
+            self._send(connection, peer, response)
 
     def _handle_cancel(
         self,

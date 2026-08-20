@@ -47,6 +47,7 @@ class _AuditRecord:
     msg_type: str | None
     order_id: str | None
     exec_type: str | None
+    exec_id: str | None
     ord_status: str | None
 
 
@@ -88,6 +89,7 @@ def _normalize_record(entry: Any) -> _AuditRecord:
             "msg_type": getattr(entry, "msg_type", None),
             "order_id": getattr(entry, "order_id", None),
             "exec_type": getattr(entry, "exec_type", None),
+            "exec_id": getattr(entry, "exec_id", None),
             "ord_status": getattr(entry, "ord_status", None),
             "fields": getattr(entry, "fields", {}),
         }
@@ -121,6 +123,11 @@ def _normalize_record(entry: Any) -> _AuditRecord:
         exec_type=(
             str(data.get("exec_type") or _field(fields, 150))
             if data.get("exec_type") is not None or _field(fields, 150) is not None
+            else None
+        ),
+        exec_id=(
+            str(data.get("exec_id") or _field(fields, 17))
+            if data.get("exec_id") is not None or _field(fields, 17) is not None
             else None
         ),
         ord_status=(
@@ -163,6 +170,7 @@ def _reconstruct(records: list[_AuditRecord], order_id: str) -> list[Transition]
     )
     machine = OrderStateMachine()
     pending_cancel_requests = 0
+    seen_exec_ids: set[str] = set()
     try:
         for _, record in relevant:
             if record.direction == "inbound" and record.msg_type == "F":
@@ -171,6 +179,11 @@ def _reconstruct(records: list[_AuditRecord], order_id: str) -> list[Transition]
             if record.direction == "outbound" and record.msg_type == "9":
                 pending_cancel_requests = max(0, pending_cancel_requests - 1)
                 continue
+
+            if record.exec_id is not None:
+                if record.exec_id in seen_exec_ids:
+                    continue
+                seen_exec_ids.add(record.exec_id)
 
             event = _execution_event(record)
             if event is OrderEvent.CANCEL_CONFIRMED and pending_cancel_requests:
@@ -351,4 +364,3 @@ def check_completeness(
         lifecycle_issues=lifecycle_issues,
     )
     return result
-

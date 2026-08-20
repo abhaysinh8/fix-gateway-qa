@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>FIX Gateway QA Report</title>
   <style>
-    :root { color-scheme: light; --ink: #172033; --muted: #667085; --line: #dce2ea; --navy: #12213f; --blue: #3f73d8; --green: #12805c; --red: #c63b4a; --paper: #fff; --wash: #f4f7fb; }
+    :root { color-scheme: light; --ink: #172033; --muted: #667085; --line: #dce2ea; --navy: #12213f; --blue: #3f73d8; --green: #12805c; --red: #c63b4a; --amber: #a15c00; --paper: #fff; --wash: #f4f7fb; }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--wash); color: var(--ink); font: 15px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
     main { width: min(1100px, calc(100% - 32px)); margin: 36px auto 56px; }
@@ -21,6 +21,13 @@
     .card span { display: block; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
     .card strong { display: block; margin-top: 5px; font-size: 26px; }
     .status-pass { color: var(--green); } .status-fail { color: var(--red); }
+    .badge { display: inline-block; padding: 3px 9px; border-radius: 999px; background: #e8f6f0; color: var(--green); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
+    .badge.fail { background: #fcecef; color: var(--red); }
+    .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 10px; margin-top: 14px; }
+    .metric { padding: 13px; border: 1px solid var(--line); border-radius: 9px; }
+    .metric span { display: block; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .metric strong { display: block; margin-top: 4px; font-size: 17px; }
+    .issues { margin: 12px 0 0; color: var(--red); }
     .latency-grid { display: grid; gap: 12px; }
     .latency-row { display: grid; grid-template-columns: 62px 1fr 92px; gap: 12px; align-items: center; }
     .track { height: 12px; overflow: hidden; border-radius: 999px; background: #e8edf5; }
@@ -55,6 +62,16 @@
         <div class="card"><span>Failed</span><strong>{{ failed }}</strong></div>
       </div>
       <p class="note">Success rate {{ "%.1f"|format(success_rate) }}%{% if skipped %}; {{ skipped }} skipped or otherwise unclassified{% endif %}.</p>
+      {% if subsystem_rows %}
+      <table>
+        <thead><tr><th>Subsystem</th><th>Result</th><th>Evidence</th></tr></thead>
+        <tbody>
+        {% for row in subsystem_rows %}
+          <tr><td>{{ row.name }}</td><td><span class="badge {{ 'fail' if row.status_class == 'fail' else '' }}">{{ row.status }}</span></td><td>{{ row.details }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
     </section>
 
     <section class="panel">
@@ -69,6 +86,75 @@
       {% endfor %}
       </div>
       <p class="note">Based on {{ sample_count }} request samples. Bars are scaled relative to the maximum observed latency.</p>
+      <div class="metric-grid">
+        <div class="metric"><span>Baseline comparison</span><strong class="status-{{ 'pass' if baseline_status == 'PASS' else 'fail' }}">{{ baseline_status }}</strong></div>
+        <div class="metric"><span>Baseline p99</span><strong>{{ baseline.get('baseline_p99_ms', '—') }}{% if baseline.get('baseline_p99_ms') is not none and baseline.get('baseline_p99_ms') != '—' %} ms{% endif %}</strong></div>
+        <div class="metric"><span>Allowed p99</span><strong>{{ baseline.get('allowed_p99_ms', '—') }}{% if baseline.get('allowed_p99_ms') is not none and baseline.get('allowed_p99_ms') != '—' %} ms{% endif %}</strong></div>
+        <div class="metric"><span>Decision</span><strong>{{ baseline.get('action', 'not evaluated') }}</strong></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Numerical precision and rounding</h2>
+      <p><span class="badge {{ 'fail' if precision_status == 'FAIL' else '' }}">{{ precision_status }}</span> {{ precision.get('summary', 'Precision demo was not run.') }}</p>
+      {% if precision_rows %}
+      <table>
+        <thead><tr><th>Operation</th><th>Decimal result</th><th>Naive float result</th><th>Observation</th></tr></thead>
+        <tbody>{% for row in precision_rows %}<tr><td>{{ row.operation }}</td><td>{{ row.decimal_result }}</td><td>{{ row.naive_result }}</td><td>{{ row.observation }}</td></tr>{% endfor %}</tbody>
+      </table>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <h2>Audit trail completeness</h2>
+      <p><span class="badge {{ 'fail' if audit_status == 'FAIL' else '' }}">{{ audit_status }}</span> {{ audit.get('summary', 'Audit check was not run.') }}</p>
+      <div class="metric-grid">
+        <div class="metric"><span>Audit entries</span><strong>{{ audit.get('entry_count', '—') }}</strong></div>
+        <div class="metric"><span>Orders cross-checked</span><strong>{{ audit.get('orders_checked', '—') }}</strong></div>
+        <div class="metric"><span>Open orders</span><strong>{{ audit.get('open_orders', '—') }}</strong></div>
+      </div>
+      {% if audit_issues %}<ul class="issues">{% for issue in audit_issues %}<li>{{ issue }}</li>{% endfor %}</ul>{% endif %}
+    </section>
+
+    <section class="panel">
+      <h2>Market data conformance and gap recovery</h2>
+      <p><span class="badge {{ 'fail' if market_status == 'FAIL' else '' }}">{{ market_status }}</span> {{ market_data.get('summary', 'Market data replay was not run.') }}</p>
+      <div class="metric-grid">
+        <div class="metric"><span>Ordered replay</span><strong>{{ market_data.get('ordered_status', '—') }}</strong></div>
+        <div class="metric"><span>Gap detected</span><strong>{{ market_data.get('gap_detected', '—') }}</strong></div>
+        <div class="metric"><span>Resync requested</span><strong>{{ market_data.get('request_resync', '—') }}</strong></div>
+        <div class="metric"><span>Checksum validation</span><strong>{{ market_data.get('checksum_status', '—') }}</strong></div>
+      </div>
+      {% if market_gaps %}<p class="note">Detected gap ranges: {{ market_gaps|join(', ') }}</p>{% endif %}
+      {% if market_data.get('final_book') %}<p class="note">Final reconstructed book: {{ market_data.get('final_book') }}</p>{% endif %}
+    </section>
+
+    <section class="panel">
+      <h2>Chaos, retries, and idempotency</h2>
+      <p><span class="badge {{ 'fail' if chaos_status == 'FAIL' else '' }}">{{ chaos_status }}</span> {{ chaos.get('summary', 'Chaos scenario was not run.') }}</p>
+      <div class="metric-grid">
+        <div class="metric"><span>Duplicates ignored</span><strong>{{ chaos.get('duplicates_detected', '—') }}</strong></div>
+        <div class="metric"><span>Out-of-order isolated</span><strong>{{ chaos.get('reorder_safe', '—') }}</strong></div>
+        <div class="metric"><span>Retry-safe orders</span><strong>{{ chaos.get('orders_created', '—') }}</strong></div>
+      </div>
+      {% if chaos_details %}<ul>{% for detail in chaos_details %}<li>{{ detail }}</li>{% endfor %}</ul>{% endif %}
+    </section>
+
+    <section class="panel">
+      <h2>Short soak-test time series</h2>
+      <p><span class="badge {{ 'fail' if soak_status == 'FAIL' else '' }}">{{ soak_status }}</span> {{ soak.get('summary', 'Soak sample was not run.') }}</p>
+      <div class="metric-grid">
+        <div class="metric"><span>Total requests</span><strong>{{ soak.get('total_requests', '—') }}</strong></div>
+        <div class="metric"><span>Errors</span><strong>{{ soak.get('error_count', '—') }}</strong></div>
+        <div class="metric"><span>Memory growth</span><strong>{{ soak.get('memory_growth_percent', '—') }}{% if soak.get('memory_growth_percent') is not none and soak.get('memory_growth_percent') != '—' %}%{% endif %}</strong></div>
+        <div class="metric"><span>p99 degradation</span><strong>{{ soak.get('latency_degradation_percent', '—') }}{% if soak.get('latency_degradation_percent') is not none and soak.get('latency_degradation_percent') != '—' %}%{% endif %}</strong></div>
+      </div>
+      {% if soak_rows %}
+      <table>
+        <thead><tr><th>Elapsed (s)</th><th>Memory (MiB)</th><th>Connections</th><th>Requests</th><th>p50 (ms)</th><th>p99 (ms)</th></tr></thead>
+        <tbody>{% for row in soak_rows %}<tr><td>{{ row.elapsed }}</td><td>{{ row.memory }}</td><td>{{ row.connections }}</td><td>{{ row.requests }}</td><td>{{ row.p50 }}</td><td>{{ row.p99 }}</td></tr>{% endfor %}</tbody>
+      </table>
+      {% endif %}
     </section>
 
     <section class="panel">
@@ -88,8 +174,7 @@
       <p class="note">Educational QA heuristics only—not a trade-surveillance or compliance determination.</p>
     </section>
 
-    <footer>fix-gateway-qa · FIX 4.4 conformance, lifecycle, latency, and heuristic-pattern testing</footer>
+    <footer>fix-gateway-qa · protocol, lifecycle, performance, resilience, market-data, audit, and surveillance QA</footer>
   </main>
 </body>
 </html>
-

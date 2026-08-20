@@ -8,7 +8,10 @@ version = "0.1.0"
 description = "FIX 4.4 order-gateway conformance and QA portfolio project"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["Jinja2>=3.1,<4"]
+dependencies = [
+    "Jinja2>=3.1,<4",
+    "psutil>=5.9,<8",
+]
 
 [project.optional-dependencies]
 test = [
