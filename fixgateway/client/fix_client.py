@@ -32,6 +32,10 @@ class ConcurrentOrderResult:
     latency_ms: float
 
 
+class FixRequestTimeoutError(TimeoutError):
+    """Raised when a FIX request does not receive a response before its deadline."""
+
+
 class FixClient:
     """A small persistent FIX client intended for tests and demonstrations."""
 
@@ -100,7 +104,12 @@ class FixClient:
     def receive_message(self) -> FixMessage:
         if self._socket is None:
             raise RuntimeError("FIX client is not connected")
-        return decode(self._reader.receive(self._socket))
+        try:
+            return decode(self._reader.receive(self._socket))
+        except TimeoutError as exc:
+            raise FixRequestTimeoutError(
+                f"Timed out after {self.timeout:.3f}s waiting for a FIX response"
+            ) from exc
 
     def send_new_order(
         self,
@@ -160,7 +169,13 @@ class FixClient:
             raise RuntimeError("FIX client is not connected")
         started_ns = time.perf_counter_ns()
         self._socket.sendall(raw)
-        response = self.receive_message()
+        try:
+            response = self.receive_message()
+        except FixRequestTimeoutError as exc:
+            raise FixRequestTimeoutError(
+                f"Timed out after {self.timeout:.3f}s waiting for response to "
+                f"MsgType {request_type} (ClOrdID {cl_ord_id})"
+            ) from exc
         finished_ns = time.perf_counter_ns()
         self.latency_samples.append(
             LatencySample(
@@ -212,4 +227,3 @@ class FixClient:
             34: str(next(self._sequence)),
             52: _fix_timestamp(),
         }
-

@@ -51,6 +51,11 @@ class MockExchange:
         processing_delay_ms: tuple[float, float] = (2.0, 5.0),
         fill_strategy: FillStrategy = "resting",
         sender_comp_id: str = "MOCK_EXCHANGE",
+        chaos_mode: bool = False,
+        chaos_rate: float = 0.10,
+        chaos_drop_probability: float = 0.50,
+        chaos_extra_delay_ms: tuple[float, float] = (200.0, 1_000.0),
+        random_seed: int | None = None,
     ) -> None:
         low_delay, high_delay = processing_delay_ms
         if low_delay < 0 or high_delay < low_delay:
@@ -62,12 +67,25 @@ class MockExchange:
             "two_partial_then_full",
         }:
             raise ValueError(f"Unsupported fill strategy: {fill_strategy!r}")
+        if not 0 <= chaos_rate <= 1:
+            raise ValueError("chaos_rate must be between zero and one")
+        if not 0 <= chaos_drop_probability <= 1:
+            raise ValueError("chaos_drop_probability must be between zero and one")
+        chaos_low, chaos_high = chaos_extra_delay_ms
+        if chaos_low < 0 or chaos_high < chaos_low:
+            raise ValueError(
+                "chaos_extra_delay_ms must be a non-negative (min, max) range"
+            )
 
         self.host = host
         self.port = port
         self.processing_delay_ms = (float(low_delay), float(high_delay))
         self.fill_strategy = fill_strategy
         self.sender_comp_id = sender_comp_id
+        self.chaos_mode = chaos_mode
+        self.chaos_rate = chaos_rate
+        self.chaos_drop_probability = chaos_drop_probability
+        self.chaos_extra_delay_ms = (float(chaos_low), float(chaos_high))
         self.order_book = OrderBook()
         self.message_log: list[MessageLogEntry] = []
 
@@ -78,6 +96,7 @@ class MockExchange:
         self._stop_event = threading.Event()
         self._lock = threading.RLock()
         self._order_ids = itertools.count(1)
+        self._random = random.Random(random_seed)
 
     @property
     def is_running(self) -> bool:
@@ -232,10 +251,24 @@ class MockExchange:
         peer: tuple[str, int],
         message: FixMessage,
     ) -> None:
-        delay = random.uniform(*self.processing_delay_ms) / 1_000
+        raw = message.encode()
+        is_execution_report = message.get(Tag.MSG_TYPE) == MsgType.EXECUTION_REPORT.value
+        apply_chaos = (
+            self.chaos_mode
+            and is_execution_report
+            and self._random.random() < self.chaos_rate
+        )
+
+        delay = self._random.uniform(*self.processing_delay_ms) / 1_000
         if delay:
             time.sleep(delay)
-        raw = message.encode()
+        if apply_chaos and self._random.random() < self.chaos_drop_probability:
+            self._record("DROPPED", peer, raw, decode(raw))
+            return
+        if apply_chaos:
+            extra_delay = self._random.uniform(*self.chaos_extra_delay_ms) / 1_000
+            if extra_delay:
+                time.sleep(extra_delay)
         connection.sendall(raw)
         self._record("SENT", peer, raw, decode(raw))
 

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FIX Gateway QA Report</title>
+  <style>
+    :root { color-scheme: light; --ink: #172033; --muted: #667085; --line: #dce2ea; --navy: #12213f; --blue: #3f73d8; --green: #12805c; --red: #c63b4a; --paper: #fff; --wash: #f4f7fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--wash); color: var(--ink); font: 15px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
+    main { width: min(1100px, calc(100% - 32px)); margin: 36px auto 56px; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: end; margin-bottom: 24px; }
+    h1, h2 { margin: 0; color: var(--navy); }
+    h1 { font-size: clamp(28px, 5vw, 42px); letter-spacing: -0.03em; }
+    h2 { margin-bottom: 16px; font-size: 20px; }
+    .eyebrow { color: var(--blue); font-size: 12px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    .timestamp { color: var(--muted); font-size: 13px; text-align: right; }
+    .panel { margin-top: 18px; padding: 24px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); box-shadow: 0 8px 24px rgba(18, 33, 63, .05); }
+    .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .card { padding: 16px; border-radius: 10px; background: var(--wash); }
+    .card span { display: block; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+    .card strong { display: block; margin-top: 5px; font-size: 26px; }
+    .status-pass { color: var(--green); } .status-fail { color: var(--red); }
+    .latency-grid { display: grid; gap: 12px; }
+    .latency-row { display: grid; grid-template-columns: 62px 1fr 92px; gap: 12px; align-items: center; }
+    .track { height: 12px; overflow: hidden; border-radius: 999px; background: #e8edf5; }
+    .bar { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), #72a2ff); }
+    .value { text-align: right; font-variant-numeric: tabular-nums; }
+    .note { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    .empty { padding: 18px; border-radius: 10px; background: var(--wash); color: var(--muted); }
+    footer { margin-top: 20px; color: var(--muted); font-size: 12px; text-align: center; }
+    @media (max-width: 700px) { header { display: block; } .timestamp { margin-top: 8px; text-align: left; } .cards { grid-template-columns: repeat(2, 1fr); } .panel { padding: 18px; overflow-x: auto; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <div class="eyebrow">Trading infrastructure test evidence</div>
+        <h1>FIX Gateway QA Report</h1>
+      </div>
+      <div class="timestamp">Generated {{ generated_at }}</div>
+    </header>
+
+    <section class="panel">
+      <h2>Test summary</h2>
+      <div class="cards">
+        <div class="card"><span>Status</span><strong class="status-{{ status|lower }}">{{ status }}</strong></div>
+        <div class="card"><span>Total</span><strong>{{ total }}</strong></div>
+        <div class="card"><span>Passed</span><strong>{{ passed }}</strong></div>
+        <div class="card"><span>Failed</span><strong>{{ failed }}</strong></div>
+      </div>
+      <p class="note">Success rate {{ "%.1f"|format(success_rate) }}%{% if skipped %}; {{ skipped }} skipped or otherwise unclassified{% endif %}.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Round-trip latency</h2>
+      <div class="latency-grid">
+      {% for row in latency_rows %}
+        <div class="latency-row">
+          <strong>{{ row.label }}</strong>
+          <div class="track"><div class="bar" style="width: {{ "%.2f"|format(row.width) }}%"></div></div>
+          <div class="value">{{ "%.3f"|format(row.value) }} ms</div>
+        </div>
+      {% endfor %}
+      </div>
+      <p class="note">Based on {{ sample_count }} request samples. Bars are scaled relative to the maximum observed latency.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Simplified surveillance heuristic matches</h2>
+      {% if surveillance_rows %}
+      <table>
+        <thead><tr><th>Order ID</th><th>Pattern type</th><th>Timestamp</th><th>Relevant details</th></tr></thead>
+        <tbody>
+        {% for row in surveillance_rows %}
+          <tr><td>{{ row.order_id }}</td><td>{{ row.pattern }}</td><td>{{ row.timestamp }}</td><td>{{ row.details }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty">No heuristic pattern matches were raised in this run.</div>
+      {% endif %}
+      <p class="note">Educational QA heuristics only—not a trade-surveillance or compliance determination.</p>
+    </section>
+
+    <footer>fix-gateway-qa · FIX 4.4 conformance, lifecycle, latency, and heuristic-pattern testing</footer>
+  </main>
+</body>
+</html>
+

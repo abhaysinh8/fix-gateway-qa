@@ -1,5 +1,15 @@
 """FIX client components for integration and performance tests."""
 
-from .fix_client import ConcurrentOrderResult, FixClient, LatencySample
+from .fix_client import (
+    ConcurrentOrderResult,
+    FixClient,
+    FixRequestTimeoutError,
+    LatencySample,
+)
 
-__all__ = ["ConcurrentOrderResult", "FixClient", "LatencySample"]
+__all__ = [
+    "ConcurrentOrderResult",
+    "FixClient",
+    "FixRequestTimeoutError",
+    "LatencySample",
+]

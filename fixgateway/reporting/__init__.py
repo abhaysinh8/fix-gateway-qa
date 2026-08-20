@@ -7,6 +7,7 @@ from .latency import (
     compare_latency_baseline,
     format_latency_table,
 )
+from .report_generator import generate_report
 
 __all__ = [
     "BaselineComparison",
@@ -14,5 +15,5 @@ __all__ = [
     "calculate_latency_percentiles",
     "compare_latency_baseline",
     "format_latency_table",
+    "generate_report",
 ]
-

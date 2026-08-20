@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "FIX 4.4 order-gateway conformance and QA portfolio project"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["Jinja2>=3.1,<4"]
 
 [project.optional-dependencies]
 test = [
@@ -23,3 +23,5 @@ testpaths = ["tests"]
 [tool.setuptools.packages.find]
 include = ["fixgateway*"]
 
+[tool.setuptools.package-data]
+"fixgateway.reporting" = ["templates/*.j2"]

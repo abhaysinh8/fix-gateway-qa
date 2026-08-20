@@ -1,5 +1,36 @@
 # fix-gateway-qa
 
+## Project Overview
+
+`fix-gateway-qa` is an end-to-end QA portfolio project for an electronic order
+gateway. It demonstrates hand-built FIX 4.4 protocol conformance testing, model-based
+order lifecycle testing through a formal state machine, and realistic TCP integration
+against a controllable mock exchange. The exchange also has an opt-in chaos mode that
+injects delayed or dropped Execution Reports so client timeout behavior can be tested.
+
+The performance layer records round-trip request latency and guards p99 against a saved
+regression baseline. A deliberately simplified rule-based detector produces structured
+`spoofing-like` and `layering-like` educational signals. These are QA heuristics—not a
+real surveillance or compliance system. Jinja2 combines the suite summary, latency
+percentiles, and heuristic matches into a self-contained HTML report.
+
+Run the complete demonstration:
+
+```bash
+python run_demo.py
+```
+
+Run the full test suite directly:
+
+```bash
+pytest
+```
+
+The committed [sample HTML report](reports/report.html) shows the report layout: status
+cards for test counts, proportional latency bars for p50 through max, and a table of
+structured surveillance-pattern details. Open it in any browser; it has no external
+asset dependencies.
+
 `fix-gateway-qa` is a QA/testing portfolio project modeled on the workflows used to
 test electronic-trading infrastructure. It implements FIX 4.4 message encoding,
 decoding, wire-integrity checks, order-message conformance validation, and a tested
@@ -16,9 +47,11 @@ order lifecycle model without relying on a third-party FIX engine.
 - In-memory order-book stub supporting resting, partial-fill, full-fill, and cancel flows
 - Hypothesis properties that exercise arbitrary valid and invalid event sequences
 - Real TCP mock exchange with FIX Logon, lifecycle responses, and wire-message logging
+- Configurable chaos injection for delayed or dropped Execution Reports
 - Synchronous and concurrent test client with per-request round-trip latency recording
 - p50/p99/p99.9/max latency reporting with a persisted regression baseline
 - Structured, rule-based spoofing-like and layering-like test heuristics
+- Self-contained Jinja2 HTML report generation and a one-command end-to-end demo
 - Unit coverage for valid, malformed, and corrupted wire messages
 
 ## Run the tests
@@ -46,7 +79,7 @@ The pattern detector is a deliberately simplified educational heuristic for QA a
 portfolio demonstrations. It is not a real trade-surveillance or compliance system,
 and its pattern labels are not compliance determinations.
 
-## Coming up
+## Status
 
-Phase 6 will consume structured test and heuristic results in richer HTML QA reports.
-Later work can exercise more demanding load and fault-injection scenarios.
+All six planned phases are implemented. The project can be extended with higher-volume
+load generation, session recovery, sequence-gap handling, and deeper fault injection.
