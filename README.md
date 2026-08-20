@@ -18,6 +18,7 @@ order lifecycle model without relying on a third-party FIX engine.
 - Real TCP mock exchange with FIX Logon, lifecycle responses, and wire-message logging
 - Synchronous and concurrent test client with per-request round-trip latency recording
 - p50/p99/p99.9/max latency reporting with a persisted regression baseline
+- Structured, rule-based spoofing-like and layering-like test heuristics
 - Unit coverage for valid, malformed, and corrupted wire messages
 
 ## Run the tests
@@ -39,7 +40,13 @@ Set `UPDATE_BASELINE=1` to intentionally replace `reports/latency_baseline.json`
 `LATENCY_ORDER_COUNT` and `LATENCY_REGRESSION_THRESHOLD` configure the pytest latency
 run; the default regression budget is 20 percent above the saved p99.
 
+## Surveillance disclaimer
+
+The pattern detector is a deliberately simplified educational heuristic for QA and
+portfolio demonstrations. It is not a real trade-surveillance or compliance system,
+and its pattern labels are not compliance determinations.
+
 ## Coming up
 
-The next phase will add abusive-order-pattern surveillance. Later work will expand the
-QA reports and exercise more demanding load and fault-injection scenarios.
+Phase 6 will consume structured test and heuristic results in richer HTML QA reports.
+Later work can exercise more demanding load and fault-injection scenarios.
