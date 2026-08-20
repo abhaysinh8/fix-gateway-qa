@@ -1,0 +1,230 @@
+{
+  "configuration": {
+    "concurrency": 20,
+    "concurrent_orders": 100,
+    "market_iterations": 1000,
+    "micro_iterations": 10000,
+    "rounds": 7,
+    "sequential_orders": 200
+  },
+  "metadata": {
+    "generated_at": "2026-08-20T16:03:45.755682+00:00",
+    "implementation": "CPython",
+    "logical_cpu_count": 8,
+    "physical_cpu_count": 4,
+    "platform": "Windows-11-10.0.26200-SP0",
+    "process_rss_mib_at_start": 37.640625,
+    "processor": "Intel64 Family 6 Model 140 Stepping 1, GenuineIntel",
+    "python": "3.14.3",
+    "system_memory_gib": 15.729286
+  },
+  "microbenchmarks": {
+    "fix_decode": {
+      "iterations_per_round": 10000,
+      "latency_us_per_operation": {
+        "coefficient_of_variation_percent": 22.368941,
+        "count": 7,
+        "max": 28.46008,
+        "mean": 19.079936,
+        "mean_ci95_high": 22.241699,
+        "mean_ci95_low": 15.918172,
+        "min": 16.53031,
+        "p50": 17.32022,
+        "p95": 25.834726,
+        "p99": 27.935009,
+        "p99_9": 28.407573,
+        "standard_deviation": 4.26798
+      },
+      "rounds": 7,
+      "throughput_operations_per_second": {
+        "coefficient_of_variation_percent": 16.560366,
+        "count": 7,
+        "max": 60494.933247,
+        "mean": 54117.571939,
+        "mean_ci95_high": 60756.764919,
+        "mean_ci95_low": 47478.37896,
+        "min": 35136.935666,
+        "p50": 57735.987187,
+        "p95": 60282.257443,
+        "p99": 60452.398086,
+        "p99_9": 60490.679731,
+        "standard_deviation": 8962.068128
+      }
+    },
+    "fix_encode": {
+      "iterations_per_round": 10000,
+      "latency_us_per_operation": {
+        "coefficient_of_variation_percent": 12.021257,
+        "count": 7,
+        "max": 11.64206,
+        "mean": 9.621176,
+        "mean_ci95_high": 10.477987,
+        "mean_ci95_low": 8.764365,
+        "min": 8.4393,
+        "p50": 9.13526,
+        "p95": 11.373995,
+        "p99": 11.588447,
+        "p99_9": 11.636699,
+        "standard_deviation": 1.156586
+      },
+      "rounds": 7,
+      "throughput_operations_per_second": {
+        "coefficient_of_variation_percent": 11.107844,
+        "count": 7,
+        "max": 118493.239961,
+        "mean": 105136.61326,
+        "mean_ci95_high": 113788.101345,
+        "mean_ci95_low": 96485.125175,
+        "min": 85895.451492,
+        "p50": 109465.959371,
+        "p95": 116745.914015,
+        "p99": 118143.774772,
+        "p99_9": 118458.293442,
+        "standard_deviation": 11678.411195
+      }
+    },
+    "market_data_replay": {
+      "iterations_per_round": 1000,
+      "latency_us_per_operation": {
+        "coefficient_of_variation_percent": 6.057223,
+        "count": 7,
+        "max": 84.5271,
+        "mean": 76.534157,
+        "mean_ci95_high": 79.968439,
+        "mean_ci95_low": 73.099875,
+        "min": 71.4291,
+        "p50": 76.3502,
+        "p95": 83.11068,
+        "p99": 84.243816,
+        "p99_9": 84.498772,
+        "standard_deviation": 4.635845
+      },
+      "rounds": 7,
+      "throughput_operations_per_second": {
+        "coefficient_of_variation_percent": 5.891017,
+        "count": 7,
+        "max": 13999.896401,
+        "mean": 13106.095078,
+        "mean_ci95_high": 13678.061625,
+        "mean_ci95_low": 12534.128531,
+        "min": 11830.525358,
+        "p50": 13097.542639,
+        "p95": 13920.976425,
+        "p99": 13984.112406,
+        "p99_9": 13998.318001,
+        "standard_deviation": 772.082266
+      }
+    },
+    "message_validation": {
+      "iterations_per_round": 10000,
+      "latency_us_per_operation": {
+        "coefficient_of_variation_percent": 8.838387,
+        "count": 7,
+        "max": 54.54075,
+        "mean": 46.094583,
+        "mean_ci95_high": 49.112657,
+        "mean_ci95_low": 43.076508,
+        "min": 42.38995,
+        "p50": 45.59752,
+        "p95": 52.259679,
+        "p99": 54.084536,
+        "p99_9": 54.495129,
+        "standard_deviation": 4.074018
+      },
+      "rounds": 7,
+      "throughput_operations_per_second": {
+        "coefficient_of_variation_percent": 8.019272,
+        "count": 7,
+        "max": 23590.497276,
+        "mean": 21826.710057,
+        "mean_ci95_high": 23123.382475,
+        "mean_ci95_low": 20530.037639,
+        "min": 18334.91472,
+        "p50": 21931.017301,
+        "p95": 23504.181247,
+        "p99": 23573.23407,
+        "p99_9": 23588.770955,
+        "standard_deviation": 1750.34324
+      }
+    },
+    "order_lifecycle": {
+      "iterations_per_round": 10000,
+      "latency_us_per_operation": {
+        "coefficient_of_variation_percent": 4.068755,
+        "count": 7,
+        "max": 1.88537,
+        "mean": 1.753223,
+        "mean_ci95_high": 1.806068,
+        "mean_ci95_low": 1.700378,
+        "min": 1.66243,
+        "p50": 1.72789,
+        "p95": 1.860152,
+        "p99": 1.880326,
+        "p99_9": 1.884866,
+        "standard_deviation": 0.071334
+      },
+      "rounds": 7,
+      "throughput_operations_per_second": {
+        "coefficient_of_variation_percent": 3.961077,
+        "count": 7,
+        "max": 601529.086939,
+        "mean": 571166.474995,
+        "mean_ci95_high": 587926.82335,
+        "mean_ci95_low": 554406.12664,
+        "min": 530399.868461,
+        "p50": 578740.544826,
+        "p95": 595242.896171,
+        "p99": 600271.848785,
+        "p99_9": 601403.363124,
+        "standard_deviation": 22624.343691
+      }
+    }
+  },
+  "notes": [
+    "Local loopback benchmark; not a production capacity claim.",
+    "Mock exchange artificial processing delay was disabled for TCP measurements.",
+    "Concurrent latency excludes Logon but batch throughput includes connection setup.",
+    "95% confidence intervals describe the sampled mean, not future-tail guarantees."
+  ],
+  "tcp_order_entry": {
+    "concurrent": {
+      "latency_ms": {
+        "coefficient_of_variation_percent": 43.235183,
+        "count": 100,
+        "max": 10.8499,
+        "mean": 4.938897,
+        "mean_ci95_high": 5.357424,
+        "mean_ci95_low": 4.52037,
+        "min": 0.7156,
+        "p50": 4.6733,
+        "p95": 9.014085,
+        "p99": 10.319557,
+        "p99_9": 10.796866,
+        "standard_deviation": 2.135341
+      },
+      "max_concurrency": 20,
+      "orders": 100,
+      "throughput_orders_per_second": 715.52613,
+      "wall_time_seconds": 0.139757
+    },
+    "sequential": {
+      "latency_ms": {
+        "coefficient_of_variation_percent": 44.792991,
+        "count": 200,
+        "max": 1.0066,
+        "mean": 0.253353,
+        "mean_ci95_high": 0.269081,
+        "mean_ci95_low": 0.237625,
+        "min": 0.1784,
+        "p50": 0.2128,
+        "p95": 0.47105,
+        "p99": 0.750526,
+        "p99_9": 0.979795,
+        "standard_deviation": 0.113484
+      },
+      "orders": 200,
+      "throughput_orders_per_second": 3320.130282,
+      "wall_time_seconds": 0.060239
+    }
+  }
+}

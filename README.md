@@ -68,6 +68,7 @@ Python 3.11 or newer is required.
 python -m pip install -r requirements.txt
 python run_demo.py
 pytest
+python -m fixgateway.reporting.benchmark_runner
 ```
 
 `python run_demo.py` runs the full story and refreshes `reports/report.html`. Add
@@ -86,6 +87,44 @@ Set `UPDATE_BASELINE=1` to intentionally replace
 `LATENCY_REGRESSION_THRESHOLD` tune the pytest latency run; the default p99 regression
 budget is 20 percent.
 
+## Reproducible benchmark results
+
+Run the benchmark suite with:
+
+```bash
+python -m fixgateway.reporting.benchmark_runner
+```
+
+The command writes the full sample distributions, configuration, host metadata, and
+95% confidence intervals to
+[`reports/benchmark_results.json`](reports/benchmark_results.json). Workload sizes are
+configurable through CLI flags; run `python -m
+fixgateway.reporting.benchmark_runner --help` for all options.
+
+Latest local run: **20 August 2026**, Windows 11, CPython 3.14.3, Intel64 Family 6
+Model 140 (4 physical / 8 logical cores), 15.7 GiB RAM. Each in-process result used
+seven measured rounds after warm-up: 10,000 operations per round, except market-data
+replay at 1,000 sequences per round.
+
+| In-process operation | Mean latency | p95 latency | Median throughput |
+|---|---:|---:|---:|
+| FIX encode | 9.621 µs | 11.374 µs | 109,466 messages/s |
+| FIX decode | 19.080 µs | 25.835 µs | 57,736 messages/s |
+| Semantic message validation | 46.095 µs | 52.260 µs | 21,931 validations/s |
+| Two-transition order lifecycle | 1.753 µs | 1.860 µs | 578,741 lifecycles/s |
+| Two-message market-data replay | 76.534 µs | 83.111 µs | 13,098 replays/s |
+
+| TCP order-entry mode | Sample | p50 | p95 | p99 | Mean ± sample SD | Batch throughput |
+|---|---:|---:|---:|---:|---:|---:|
+| Sequential persistent session | 200 orders | 0.213 ms | 0.471 ms | 0.751 ms | 0.253 ± 0.113 ms | 3,320 orders/s |
+| 20-way concurrent sessions | 100 orders | 4.673 ms | 9.014 ms | 10.320 ms | 4.939 ± 2.135 ms | 716 orders/s |
+
+These are **local loopback QA-harness measurements, not production exchange capacity
+claims**. The mock exchange's artificial processing delay was disabled. Sequential
+orders reuse one logged-on FIX session; the concurrent latency measurement excludes
+Logon, while its batch-throughput figure includes connection setup. Host load, Python
+version, power policy, and CI virtualization will affect results.
+
 | Phase | Focus | Tests / executable evidence |
 |---:|---|---|
 | 1 | FIX encode/decode and validation | `tests/test_message_encoding.py`, `tests/test_message_validation.py` |
@@ -99,7 +138,7 @@ budget is 20 percent.
 | 9 | Market-data replay and gap detection | `tests/test_market_data_conformance.py` |
 | 10 | Duplicate/reorder chaos and idempotency | `tests/test_chaos_idempotency.py` |
 | 11 | Duration-based soak health | `tests/test_soak.py` |
-| 12 | Unified demo and report | `run_demo.py`, `tests/test_report_generator.py` |
+| 12 | Unified demo, report, and benchmark statistics | `run_demo.py`, `tests/test_report_generator.py`, `tests/test_benchmark_runner.py` |
 
 ## Capabilities at a glance
 
@@ -107,6 +146,7 @@ budget is 20 percent.
 - Deterministic order lifecycle model with property-based transition testing
 - Real TCP mock exchange and synchronous/concurrent client
 - Latency regression baselines and duration-based memory/latency soak trends
+- Statistical micro/TCP benchmarks with percentiles, dispersion, throughput, and 95% CIs
 - Decimal financial arithmetic with explicit float-drift demonstrations
 - Reconstructable, queryable order audit trail and state-machine cross-checking
 - Market-data snapshot/incremental replay with conservative sequence-gap recovery
@@ -116,7 +156,13 @@ budget is 20 percent.
 
 ## Resume bullet suggestion
 
-Built a FIX protocol trading infrastructure QA suite in Python spanning protocol
-conformance, model-based lifecycle testing, latency regression tracking, market data
-conformance/gap detection, chaos/idempotency testing, and rule-based surveillance—with
-automated HTML reporting, modeled on real trading infrastructure QA workflows.
+- Built a **77-test FIX 4.4 trading-infrastructure QA suite** in Python spanning protocol
+  conformance, Hypothesis-based lifecycle modeling, Decimal precision regression,
+  audit reconstruction, market-data gap detection, chaos/idempotency testing, latency
+  baselines, soak testing, surveillance heuristics, and automated HTML evidence.
+
+- Designed a reproducible statistical benchmark harness reporting percentiles,
+  dispersion, throughput, and 95% mean confidence intervals; measured **0.751 ms p99
+  sequential TCP order-entry latency at 3.3k orders/s** across 200 local loopback orders
+  and **~579k modeled order lifecycles/s** across seven 10,000-iteration rounds on the
+  documented reference machine.
